@@ -1,0 +1,76 @@
+name: Tests (Integration)
+
+# ------------------------------------------------------------------------------
+# Workflow Settings
+# ------------------------------------------------------------------------------
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      debug:
+        description: "Enable verbose test output (V=1)"
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+env:
+  CARGO_TERM_COLOR: always
+  CONTAINER_ENGINE: docker
+  KIND_CLUSTER_NAME: ci
+  V: ${{ inputs.debug && '1' || '' }}
+  OPERATOR_IMAGE: praxis-operator:dev
+  PRAXIS_IMAGE: ghcr.io/praxis-proxy/praxis:0.3.1
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Integration tests (KIND + operator)
+  # ---------------------------------------------------------------------------
+
+  test:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Login to GHCR
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: praxis-proxy/conventions/.github/actions/setup-rust@7e1e8d97c2dc820d24b31f9a65b119c4d0e5342c # v0.1.0
+
+      - name: Build operator image
+        run: docker build -t ${{ env.OPERATOR_IMAGE }} -f Containerfile .
+
+      - name: Pull praxis image
+        run: docker pull ${{ env.PRAXIS_IMAGE }}
+
+      - name: Install KIND
+        run: |
+          curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.27.0/kind-linux-amd64
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+
+      - name: Setup KIND cluster
+        run: bash hack/setup-kind.sh
+
+      - name: Integration tests
+        run: make dev-integration
+
+      - name: Debug cluster state
+        if: failure()
+        run: bash hack/dump-debug.sh
