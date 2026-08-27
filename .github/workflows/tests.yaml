@@ -44,6 +44,11 @@ jobs:
 
       - uses: praxis-proxy/conventions/.github/actions/setup-rust-lint@7e1e8d97c2dc820d24b31f9a65b119c4d0e5342c # v0.1.0
 
+      # `make lint` runs `cargo machete`; the setup action only provides
+      # clippy and rustfmt, so install machete before linting.
+      - name: Install cargo-machete
+        run: cargo install cargo-machete --locked
+
       - name: Lint
         run: make lint
 
